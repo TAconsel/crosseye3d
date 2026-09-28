@@ -1,0 +1,10 @@
+{
+	"key.category.crosseye3d.main": "CrossEye 3D",
+	"key.crosseye3d.toggle": "Toggle 3D",
+	"key.crosseye3d.swap": "Cross-eye / Parallel",
+	"key.crosseye3d.layout": "Cycle layout (Full / Letterbox)",
+	"key.crosseye3d.separation_up": "Increase depth (eye separation)",
+	"key.crosseye3d.separation_down": "Decrease depth (eye separation)",
+	"key.crosseye3d.convergence_up": "Push screen plane farther",
+	"key.crosseye3d.convergence_down": "Pull screen plane closer"
+}

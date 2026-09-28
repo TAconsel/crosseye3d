@@ -1,0 +1,30 @@
+{
+	"schemaVersion": 1,
+	"id": "crosseye3d",
+	"version": "${version}",
+	"name": "CrossEye 3D",
+	"description": "Side-by-side stereoscopic 3D for glasses-free cross-eye (or parallel) viewing. Works with Iris shader packs.",
+	"authors": ["TAconsel"],
+	"contact": {
+		"homepage": "https://github.com/TAconsel/crosseye3d",
+		"sources": "https://github.com/TAconsel/crosseye3d",
+		"issues": "https://github.com/TAconsel/crosseye3d/issues"
+	},
+	"license": "MIT",
+	"environment": "client",
+	"entrypoints": {
+		"client": ["com.consel.crosseye3d.CrossEye3DClient"]
+	},
+	"mixins": [
+		{ "config": "crosseye3d.client.mixins.json", "environment": "client" }
+	],
+	"depends": {
+		"fabricloader": ">=0.19.0",
+		"minecraft": "~26.2",
+		"java": ">=25",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"iris": "*"
+	}
+}

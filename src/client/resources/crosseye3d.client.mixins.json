@@ -1,0 +1,12 @@
+{
+	"required": true,
+	"package": "com.consel.crosseye3d.mixin",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"GameRendererMixin",
+		"LevelRendererMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}
