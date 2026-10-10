@@ -17,14 +17,16 @@ import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.phys.HitResult;
 import org.joml.Matrix4f;
+import org.joml.Vector2f;
+import org.joml.Vector3f;
 import org.joml.Vector4f;
 import org.jspecify.annotations.Nullable;
 
 /**
  * Renders the level once per eye and packs both images side by side into the main render target.
  * <p>
- * The eye offset is baked into the projection matrix (view-space translation + off-axis shear) instead of moving
- * the camera. Chunk culling, entity extraction and camera position stay untouched, and shader packs that rebuild
+ * The eye offset (and head tracking) is baked into the projection matrix (off-axis frustum + view-space
+ * translation) instead of moving the camera. Chunk culling, entity extraction and camera position stay untouched, and shader packs that rebuild
  * view/world positions from {@code gbufferProjectionInverse} still get correct lighting for each eye.
  */
 public final class StereoRenderer {
@@ -55,8 +57,8 @@ public final class StereoRenderer {
 
 	private static @Nullable Eye currentEye;
 	private static boolean stereoThisFrame;
-	/** m00 of the last unmodified level projection, used to place the per-eye crosshairs. */
-	private static float lastProjectionM00 = 1.0F;
+	/** The last unmodified level projection, used to place the crosshairs. */
+	private static final Matrix4f lastProjection = new Matrix4f();
 
 	private static final GpuTexture[] eyeTextures = new GpuTexture[2];
 	private static final GpuTextureView[] eyeViews = new GpuTextureView[2];
@@ -85,11 +87,78 @@ public final class StereoRenderer {
 		return config.layout == StereoConfig.Layout.FULL ? 2.0F : 1.0F;
 	}
 
+	/** Whether the level projection is changed this frame: rendering an eye, or head tracking in 2D. */
+	public static boolean modifiesLevelProjection() {
+		return currentEye != null || HeadTracker.isActive();
+	}
+
 	/**
-	 * Turns a normal perspective projection into the projection for the eye being rendered:
-	 * {@code P' = Shear(k) * ScaleX(sx) * P * Translate(-sign * separation / 2)}.
+	 * Replaces the level projection and view matrix for the eye being rendered (or the head-tracked 2D view).
+	 * The eye's offset from the camera goes into the view matrix rather than the projection: shader packs commonly
+	 * rebuild view positions from only the diagonal and last column of {@code gbufferProjectionInverse}, which is
+	 * exact for an off-axis frustum but not for a frustum combined with a translation.
 	 */
-	public static void applyEye(final Matrix4f projection) {
+	public static void applyLevelView(final Matrix4f projection, final Matrix4f viewRotation) {
+		Vector3f offset = applyWindowProjection(projection, currentEye);
+		viewRotation.set(new Matrix4f().translation(-offset.x, -offset.y, -offset.z).mul(viewRotation));
+	}
+
+	/**
+	 * Treats the screen as a window into the world and turns {@code projection} into the off-axis frustum for a viewer
+	 * looking through it.
+	 * <p>
+	 * The virtual window sits {@code convergence} blocks in front of the camera and, from the neutral head position,
+	 * covers exactly the game's field of view. Each eye is offset by half the eye separation, and head tracking moves
+	 * the eyes relative to the window, so the frustum skews to keep passing through it. Without head tracking this
+	 * reduces to parallel stereo cameras with a convergence shear.
+	 *
+	 * @param projection the game's symmetric perspective projection; replaced in place
+	 * @param eye the eye to render, or {@code null} for a single head-tracked view
+	 * @return where the eye sits relative to the camera, in view space (blocks)
+	 */
+	private static Vector3f applyWindowProjection(final Matrix4f projection, final @Nullable Eye eye) {
+		StereoConfig config = CrossEye3DClient.config();
+		boolean stereo = eye != null;
+		float sx = stereo ? horizontalScale(config) : 1.0F;
+		float windowDistance = config.convergence;
+		float halfHeight = windowDistance / projection.m11();
+		float halfWidth = windowDistance / (projection.m00() * sx);
+
+		float eyeX = 0.0F;
+		float eyeY = 0.0F;
+		float eyeZ = windowDistance;
+		if (HeadTracker.isActive()) {
+			// Scale physical space so the real viewing distance maps onto the window distance. Moving the head keeps
+			// the same angle to the screen centre as in reality, while the window keeps the game's field of view.
+			float blocksPerCm = windowDistance / HeadTracker.neutralDistanceCm();
+			Vector3f head = HeadTracker.offsetCm(new Vector3f());
+			eyeX = head.x * blocksPerCm;
+			eyeY = head.y * blocksPerCm;
+			eyeZ = Math.max(windowDistance + head.z * blocksPerCm, windowDistance * 0.1F);
+		}
+
+		if (stereo) {
+			float halfSeparation = eye.sign * config.eyeSeparation * 0.5F;
+			float roll = HeadTracker.isActive() ? HeadTracker.rollRadians() : 0.0F;
+			eyeX += halfSeparation * (float)Math.cos(roll);
+			eyeY += halfSeparation * (float)Math.sin(roll);
+		}
+
+		// Frustum from the eye through the window, expressed as changes to the symmetric matrix (keeps its depth terms).
+		projection.m00(eyeZ / halfWidth);
+		projection.m11(eyeZ / halfHeight);
+		projection.m20(-eyeX / halfWidth);
+		projection.m21(-eyeY / halfHeight);
+		// JOML caches flags such as "perspective" that pick fast paths for invert(); they no longer hold.
+		projection.determineProperties();
+		return new Vector3f(eyeX, eyeY, eyeZ - windowDistance);
+	}
+
+	/**
+	 * Stereo offset for the first-person hand, which has its own projection and moves with the head, so it only gets
+	 * the eye separation: {@code P' = Shear(k) * ScaleX(sx) * P * Translate(-sign * separation / 2)}.
+	 */
+	public static void applyHandEye(final Matrix4f projection) {
 		Eye eye = currentEye;
 		if (eye == null) {
 			return;
@@ -109,7 +178,7 @@ public final class StereoRenderer {
 	}
 
 	public static void rememberProjection(final Matrix4f projection) {
-		lastProjectionM00 = projection.m00();
+		lastProjection.set(projection);
 	}
 
 	/**
@@ -186,22 +255,32 @@ public final class StereoRenderer {
 	}
 
 	/**
-	 * Horizontal GUI-space offset from the screen centre at which to draw the crosshair for {@code eye},
-	 * including the parallax of whatever the player is looking at so the crosshair sits on the target in 3D.
+	 * GUI-space offset from the screen centre at which to draw the crosshair for {@code eye} (or {@code null} for the
+	 * head-tracked 2D view): where the point the player is aiming at lands in that eye's image, so the crosshair
+	 * sits on the target in 3D and stays on it while the head moves.
 	 */
-	public static float crosshairOffset(final Eye eye, final int guiWidth) {
+	public static Vector2f crosshairOffset(final @Nullable Eye eye, final int guiWidth, final int guiHeight) {
 		StereoConfig config = CrossEye3DClient.config();
 		Minecraft minecraft = Minecraft.getInstance();
-		float inverseDistance = 0.0F;
+		float distance = 1000.0F;
 		HitResult hit = minecraft.hitResult;
 		if (hit != null && hit.getType() != HitResult.Type.MISS) {
-			double distance = hit.getLocation().distanceTo(minecraft.gameRenderer.mainCamera().position());
-			inverseDistance = 1.0F / (float)Math.max(distance, 0.3);
+			distance = (float)Math.max(hit.getLocation().distanceTo(minecraft.gameRenderer.mainCamera().position()), 0.3);
 		}
 
-		float ndc = eye.sign * horizontalScale(config) * lastProjectionM00 * config.eyeSeparation * 0.5F * (1.0F / config.convergence - inverseDistance);
+		Matrix4f projection = new Matrix4f(lastProjection);
+		Vector3f offset = applyWindowProjection(projection, eye);
+		Vector4f clip = projection.transform(new Vector4f(-offset.x, -offset.y, -distance - offset.z, 1.0F));
+		float ndcX = clip.x / clip.w;
+		float ndcY = clip.y / clip.w;
+
+		if (eye == null) {
+			return new Vector2f(ndcX * guiWidth / 2.0F, -ndcY * guiHeight / 2.0F);
+		}
+
 		float quarter = guiWidth / 4.0F;
+		float imageHalfHeight = config.layout == StereoConfig.Layout.FULL ? guiHeight / 2.0F : guiHeight / 4.0F;
 		boolean onLeftHalf = (eye == Eye.RIGHT) == config.crossEye;
-		return (onLeftHalf ? -quarter : quarter) + ndc * quarter;
+		return new Vector2f((onLeftHalf ? -quarter : quarter) + ndcX * quarter, -ndcY * imageHalfHeight);
 	}
 }

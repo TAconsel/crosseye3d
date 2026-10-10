@@ -6,5 +6,7 @@
 	"key.crosseye3d.separation_up": "Increase depth (eye separation)",
 	"key.crosseye3d.separation_down": "Decrease depth (eye separation)",
 	"key.crosseye3d.convergence_up": "Push screen plane farther",
-	"key.crosseye3d.convergence_down": "Pull screen plane closer"
+	"key.crosseye3d.convergence_down": "Pull screen plane closer",
+	"key.crosseye3d.head_tracking": "Toggle head tracking",
+	"key.crosseye3d.recenter": "Recenter head tracking"
 }

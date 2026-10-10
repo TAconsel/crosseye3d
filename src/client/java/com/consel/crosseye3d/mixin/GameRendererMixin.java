@@ -1,6 +1,7 @@
 package com.consel.crosseye3d.mixin;
 
 import com.consel.crosseye3d.CrossEye3DClient;
+import com.consel.crosseye3d.HeadTracker;
 import com.consel.crosseye3d.StereoRenderer;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
@@ -30,6 +31,10 @@ public abstract class GameRendererMixin {
 
 	@Unique
 	private final Matrix4f crosseye3d$savedProjection = new Matrix4f();
+	@Unique
+	private final Matrix4f crosseye3d$savedView = new Matrix4f();
+	@Unique
+	private boolean crosseye3d$projectionModified;
 
 	@WrapOperation(
 		method = "render",
@@ -58,26 +63,35 @@ public abstract class GameRendererMixin {
 		}
 	}
 
+	@Inject(method = "render", at = @At("HEAD"))
+	private void crosseye3d$beginFrame(final DeltaTracker deltaTracker, final boolean advanceGameTime, final CallbackInfo ci) {
+		HeadTracker.beginFrame();
+	}
+
 	@Inject(method = "render", at = @At("RETURN"))
 	private void crosseye3d$endFrame(final DeltaTracker deltaTracker, final boolean advanceGameTime, final CallbackInfo ci) {
 		StereoRenderer.endFrame();
 	}
 
-
 	@Inject(method = "renderLevel", at = @At("HEAD"))
 	private void crosseye3d$applyEyeProjection(final DeltaTracker deltaTracker, final CallbackInfo ci) {
 		Matrix4f projection = this.gameRenderState.levelRenderState.cameraRenderState.projectionMatrix;
 		StereoRenderer.rememberProjection(projection);
-		if (StereoRenderer.isRenderingEye()) {
+		this.crosseye3d$projectionModified = StereoRenderer.modifiesLevelProjection();
+		if (this.crosseye3d$projectionModified) {
+			Matrix4f view = this.gameRenderState.levelRenderState.cameraRenderState.viewRotationMatrix;
 			this.crosseye3d$savedProjection.set(projection);
-			StereoRenderer.applyEye(projection);
+			this.crosseye3d$savedView.set(view);
+			StereoRenderer.applyLevelView(projection, view);
 		}
 	}
 
 	@Inject(method = "renderLevel", at = @At("RETURN"))
 	private void crosseye3d$restoreProjection(final DeltaTracker deltaTracker, final CallbackInfo ci) {
-		if (StereoRenderer.isRenderingEye()) {
+		if (this.crosseye3d$projectionModified) {
 			this.gameRenderState.levelRenderState.cameraRenderState.projectionMatrix.set(this.crosseye3d$savedProjection);
+			this.gameRenderState.levelRenderState.cameraRenderState.viewRotationMatrix.set(this.crosseye3d$savedView);
+			this.crosseye3d$projectionModified = false;
 		}
 	}
 
@@ -97,7 +111,7 @@ public abstract class GameRendererMixin {
 		}
 
 		Matrix4f matrix = projection.getMatrix(new Matrix4f());
-		StereoRenderer.applyEye(matrix);
+		StereoRenderer.applyHandEye(matrix);
 		return buffer.getBuffer(matrix);
 	}
 }

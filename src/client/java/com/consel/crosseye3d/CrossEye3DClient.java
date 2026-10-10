@@ -11,6 +11,7 @@ import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import org.joml.Vector2f;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +30,8 @@ public class CrossEye3DClient implements ClientModInitializer {
 	private static KeyMapping separationDownKey;
 	private static KeyMapping convergenceUpKey;
 	private static KeyMapping convergenceDownKey;
+	private static KeyMapping headTrackingKey;
+	private static KeyMapping recenterKey;
 
 	public static StereoConfig config() {
 		return config;
@@ -46,20 +49,29 @@ public class CrossEye3DClient implements ClientModInitializer {
 		separationDownKey = register("separation_down", GLFW.GLFW_KEY_LEFT_BRACKET);
 		convergenceUpKey = register("convergence_up", GLFW.GLFW_KEY_EQUAL);
 		convergenceDownKey = register("convergence_down", GLFW.GLFW_KEY_MINUS);
+		headTrackingKey = register("head_tracking", GLFW.GLFW_KEY_F8);
+		recenterKey = register("recenter", GLFW.GLFW_KEY_F9);
+
+		if (config.headTracking) {
+			HeadTracker.start(config.trackerPort);
+		}
 
 		ClientTickEvents.END_CLIENT_TICK.register(CrossEye3DClient::handleKeys);
 
-		// Draw one crosshair per eye, each at the depth of whatever the player is looking at.
+		// Draw the crosshair where the aimed-at point lands in each eye's image (or in the head-tracked view), so it
+		// sits on the target in 3D and stays on it while the head moves.
 		HudElementRegistry.replaceElement(VanillaHudElements.CROSSHAIR, vanilla -> (graphics, deltaTracker) -> {
-			// The HUD is extracted before the frame renders, so check the setting rather than the current frame.
-			if (!config.enabled || Minecraft.getInstance().level == null) {
+			// The HUD is extracted before the frame renders, so check the settings rather than the current frame.
+			boolean stereo = config.enabled && Minecraft.getInstance().level != null;
+			if (!stereo && !HeadTracker.isActive()) {
 				vanilla.extractRenderState(graphics, deltaTracker);
 				return;
 			}
 
-			for (StereoRenderer.Eye eye : StereoRenderer.Eye.values()) {
+			for (StereoRenderer.Eye eye : stereo ? StereoRenderer.Eye.values() : new StereoRenderer.Eye[] {null}) {
+				Vector2f offset = StereoRenderer.crosshairOffset(eye, graphics.guiWidth(), graphics.guiHeight());
 				graphics.pose().pushMatrix();
-				graphics.pose().translate(StereoRenderer.crosshairOffset(eye, graphics.guiWidth()), 0.0F);
+				graphics.pose().translate(offset.x, offset.y);
 				vanilla.extractRenderState(graphics, deltaTracker);
 				graphics.pose().popMatrix();
 			}
@@ -100,6 +112,24 @@ public class CrossEye3DClient implements ClientModInitializer {
 			config.convergence /= 1.15F;
 			changed = true;
 		}
+		while (headTrackingKey.consumeClick()) {
+			config.headTracking = !config.headTracking;
+			if (config.headTracking) {
+				if (!HeadTracker.start(config.trackerPort)) {
+					config.headTracking = false;
+					minecraft.gui.hud.setOverlayMessage(
+						Component.literal("Head tracking: port " + config.trackerPort + " is in use"), false);
+					continue;
+				}
+			} else {
+				HeadTracker.stop();
+			}
+			changed = true;
+		}
+		while (recenterKey.consumeClick()) {
+			HeadTracker.recenter();
+			minecraft.gui.hud.setOverlayMessage(Component.literal("Head tracking recentred"), false);
+		}
 
 		if (changed) {
 			config.clamp();
@@ -118,7 +148,10 @@ public class CrossEye3DClient implements ClientModInitializer {
 				config.eyeSeparation,
 				config.convergence
 			)
-			: "3D off";
+			: String.format(Locale.ROOT, "3D off | screen plane %.1f blocks", config.convergence);
+		if (config.headTracking) {
+			text += HeadTracker.isReceiving() ? " | head tracking on" : " | head tracking on (waiting for tracker)";
+		}
 		minecraft.gui.hud.setOverlayMessage(Component.literal(text), false);
 	}
 }

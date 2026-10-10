@@ -17,3 +17,8 @@ bin/
 # OS
 .DS_Store
 Thumbs.db
+
+# Head tracker
+tracker/.venv/
+__pycache__/
+tracker/models/*.onnx
