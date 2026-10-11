@@ -5,7 +5,10 @@
 	"client": [
 		"CameraMixin",
 		"GameRendererMixin",
-		"LevelRendererMixin"
+		"GuiMixin",
+		"GuiRendererMixin",
+		"LevelRendererMixin",
+		"WindowMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

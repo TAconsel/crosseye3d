@@ -212,8 +212,8 @@ public final class StereoRenderer {
 		}
 
 		// Cross-eye: the right eye looks at the left half of the screen, and vice versa.
-		Eye leftHalf = config.crossEye ? Eye.RIGHT : Eye.LEFT;
-		Eye rightHalf = config.crossEye ? Eye.LEFT : Eye.RIGHT;
+		Eye leftHalf = isOnLeftHalf(Eye.LEFT) ? Eye.LEFT : Eye.RIGHT;
+		Eye rightHalf = leftHalf == Eye.LEFT ? Eye.RIGHT : Eye.LEFT;
 		int letterbox = config.layout == StereoConfig.Layout.LETTERBOX ? 2 : 0;
 		try (RenderPass pass = device.createCommandEncoder()
 				.createRenderPass(() -> "CrossEye3D side-by-side", mainTarget.getColorTextureView(), Optional.of(BLACK))) {
@@ -254,13 +254,18 @@ public final class StereoRenderer {
 		eyeHeight = height;
 	}
 
+	/** Whether {@code eye}'s image goes on the left half of the screen. */
+	public static boolean isOnLeftHalf(final Eye eye) {
+		return (eye == Eye.RIGHT) == CrossEye3DClient.config().crossEye;
+	}
+
 	/**
-	 * GUI-space offset from the screen centre at which to draw the crosshair for {@code eye} (or {@code null} for the
-	 * head-tracked 2D view): where the point the player is aiming at lands in that eye's image, so the crosshair
-	 * sits on the target in 3D and stays on it while the head moves.
+	 * GUI-space offset from the centre of the GUI at which to draw the crosshair for {@code eye} (or {@code null} for
+	 * the head-tracked 2D view): where the point the player is aiming at lands in that eye's image, so the crosshair
+	 * sits on the target in 3D and stays on it while the head moves. In stereo the GUI is drawn per eye, so it covers
+	 * that eye's image (see StereoGui).
 	 */
-	public static Vector2f crosshairOffset(final @Nullable Eye eye, final int guiWidth, final int guiHeight) {
-		StereoConfig config = CrossEye3DClient.config();
+	public static Vector2f crosshairOffset(final @Nullable Eye eye, final float guiWidth, final float guiHeight) {
 		Minecraft minecraft = Minecraft.getInstance();
 		float distance = 1000.0F;
 		HitResult hit = minecraft.hitResult;
@@ -273,14 +278,6 @@ public final class StereoRenderer {
 		Vector4f clip = projection.transform(new Vector4f(-offset.x, -offset.y, -distance - offset.z, 1.0F));
 		float ndcX = clip.x / clip.w;
 		float ndcY = clip.y / clip.w;
-
-		if (eye == null) {
-			return new Vector2f(ndcX * guiWidth / 2.0F, -ndcY * guiHeight / 2.0F);
-		}
-
-		float quarter = guiWidth / 4.0F;
-		float imageHalfHeight = config.layout == StereoConfig.Layout.FULL ? guiHeight / 2.0F : guiHeight / 4.0F;
-		boolean onLeftHalf = (eye == Eye.RIGHT) == config.crossEye;
-		return new Vector2f((onLeftHalf ? -quarter : quarter) + ndcX * quarter, -ndcY * imageHalfHeight);
+		return new Vector2f(ndcX * guiWidth / 2.0F, -ndcY * guiHeight / 2.0F);
 	}
 }

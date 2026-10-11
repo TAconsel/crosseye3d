@@ -37,6 +37,25 @@ Settings are saved in `config/crosseye3d.properties`.
 3. Hold that and let the middle image come into focus. If the depth looks inside-out, press F6.
 4. If it's hard to fuse or tiring, lower the depth with `[` or pull the screen plane closer with `-`.
 
+## AR glasses and other side-by-side displays
+
+Display glasses such as the XREAL Air series, and 3D TVs or monitors with a side-by-side mode, show the left half of the picture to the left eye and the right half to the right eye. Tested with XREAL Air 2 glasses on Linux.
+
+1. Switch the glasses to their 3D (SBS) mode. On XREAL Air glasses, hold the brightness-up button for about 3 seconds; the screen goes black for a moment and the glasses come back as a 3840×1080 display. Set your desktop to use that mode.
+2. Run Minecraft fullscreen (F11) on the glasses, so each eye gets one full half of the picture.
+3. Press F6 until the status line says **parallel**: the glasses need the left-eye image on the left. Keep the **Full** layout (F10).
+4. Start with depth around `0.065`, which is real eye spacing (1 block = 1 m), and adjust with `[` / `]`. The default `0.25` is exaggerated for cross-eye viewing on a monitor.
+
+The same settings in `config/crosseye3d.properties`:
+
+```properties
+crossEye=false
+layout=FULL
+eyeSeparation=0.065
+```
+
+The HUD and menus are drawn once in each eye, so every eye sees the whole hotbar and every menu. While a menu is open the system cursor is hidden and a cursor is drawn in both eyes instead; moving the mouse across the whole screen moves it across the menu.
+
 ## Head tracking (head-coupled perspective)
 
 With a camera pointed at you, the screen acts like a window into the world. When you move your head, the view shifts to match, so nearby things move against distant ones. This gives depth from motion parallax even with 3D turned off, and it combines with cross-eye 3D.
@@ -79,12 +98,13 @@ Tracker options:
 - **Screen as a window.** The screen is modelled as a window at the screen-plane distance. Each eye, or your tracked head, gets an off-axis frustum through that window. The eye's offset goes into the view matrix rather than the projection, because shader packs often rebuild view positions from only part of `gbufferProjectionInverse`. Culling and entity extraction still use the normal camera; the culling frustum is widened while head tracking is on.
 - **Per-frame caches are reset between eyes.** Sodium uploads its terrain uniforms once per frame, and Iris refreshes its per-frame uniforms only when its frame counter changes. Both are reset between the two eyes, by reflection, so the mod still works without them. Minecraft's per-frame entity and block-entity render lists are also kept until the second eye has been drawn.
 - **Composite pass.** Each eye image is copied out, and a small custom pipeline draws both into their screen regions.
-- **Crosshairs.** A crosshair is drawn for each eye at the depth of whatever you're looking at.
+- **GUI per eye.** While 3D is on in a world, the HUD and menus are laid out for one eye's image: the window reports an eye-sized framebuffer to the GUI scale calculation, so the GUI scale and every screen layout follow from it. The finished GUI draw list is replayed into each eye's region with its own projection and scissor. Minecraft scales mouse positions by GUI size over window size, so the mouse needs no remapping; the system cursor is hidden while a menu is open and one is drawn into the GUI instead.
+- **Crosshairs.** During each eye's GUI pass the crosshair (and attack indicator) is moved to where the point you're aiming at lands in that eye, so it sits at the depth of whatever you're looking at.
 
 ## Known limitations
 
 - **FPS roughly halves**, because the world (including the shader shadow pass) is rendered twice per frame.
-- **HUD is flat.** The hotbar, chat and menus are drawn once across the screen, not in stereo.
+- **HUD is flat.** The hotbar, chat and menus are drawn in both eyes but at the screen plane; only the crosshair follows the depth of what you're aiming at.
 - **Temporal effects** (TAA, motion blur) can show small artifacts where one eye sees something the other can't. Turn them off in the shader settings if they bother you.
 - **Post effects** (like the view when spectating a creeper) are applied over the combined side-by-side image.
 - **Graphics backend.** Only tested with the OpenGL backend.

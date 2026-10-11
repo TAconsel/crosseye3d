@@ -58,23 +58,19 @@ public class CrossEye3DClient implements ClientModInitializer {
 
 		ClientTickEvents.END_CLIENT_TICK.register(CrossEye3DClient::handleKeys);
 
-		// Draw the crosshair where the aimed-at point lands in each eye's image (or in the head-tracked view), so it
-		// sits on the target in 3D and stays on it while the head moves.
+		// Draw the head-tracked 2D crosshair where the aimed-at point lands in the view, so it stays on the target while
+		// the head moves. In stereo the GUI is drawn per eye and each eye moves the crosshair itself (see StereoGui).
 		HudElementRegistry.replaceElement(VanillaHudElements.CROSSHAIR, vanilla -> (graphics, deltaTracker) -> {
-			// The HUD is extracted before the frame renders, so check the settings rather than the current frame.
-			boolean stereo = config.enabled && Minecraft.getInstance().level != null;
-			if (!stereo && !HeadTracker.isActive()) {
+			if (StereoGui.isActive() || !HeadTracker.isActive()) {
 				vanilla.extractRenderState(graphics, deltaTracker);
 				return;
 			}
 
-			for (StereoRenderer.Eye eye : stereo ? StereoRenderer.Eye.values() : new StereoRenderer.Eye[] {null}) {
-				Vector2f offset = StereoRenderer.crosshairOffset(eye, graphics.guiWidth(), graphics.guiHeight());
-				graphics.pose().pushMatrix();
-				graphics.pose().translate(offset.x, offset.y);
-				vanilla.extractRenderState(graphics, deltaTracker);
-				graphics.pose().popMatrix();
-			}
+			Vector2f offset = StereoRenderer.crosshairOffset(null, graphics.guiWidth(), graphics.guiHeight());
+			graphics.pose().pushMatrix();
+			graphics.pose().translate(offset.x, offset.y);
+			vanilla.extractRenderState(graphics, deltaTracker);
+			graphics.pose().popMatrix();
 		});
 	}
 
